@@ -1,0 +1,13 @@
+# Only explicitly listed source files belong in the public repository.
+/*
+!/.gitignore
+!/.dockerignore
+!/.env.example
+!/Dockerfile
+!/README.md
+!/compose.yaml
+!/config/
+/config/*
+!/config/gateway.sh
+!/config/pi.sh
+!/config/privoxy.conf

@@ -1,0 +1,118 @@
+x-agent: &agent
+  depends_on:
+    gateway:
+      condition: service_healthy
+  networks:
+    - isolated
+  dns:
+    - 127.0.0.1
+  user: "${PI_UID:-1000}:${PI_GID:-1000}"
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  environment: &agent-env
+    HOME: /data
+    http_proxy: &proxy http://gateway:5187/
+    https_proxy: *proxy
+    HTTP_PROXY: *proxy
+    HTTPS_PROXY: *proxy
+    ftp_proxy: *proxy
+    FTP_PROXY: *proxy
+    rsync_proxy: gateway:5187
+    RSYNC_PROXY: gateway:5187
+    no_proxy: &no_proxy "${PI_NO_PROXY:-localhost,127.0.0.1,::1}"
+    NO_PROXY: *no_proxy
+  working_dir: /data/projects
+  stdin_open: true
+  tty: true
+  init: true
+
+services:
+  gateway:
+    build:
+      context: .
+      target: gateway
+      args:
+        GATEWAY_UID: ${GATEWAY_UID:-${PI_UID:-1000}}
+        GATEWAY_GID: ${GATEWAY_GID:-${PI_GID:-1000}}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - isolated
+      - egress
+    environment:
+      SSH_HOST: ${SSH_HOST:?Set SSH_HOST in .env}
+      SSH_USER: ${SSH_USER:?Set SSH_USER in .env}
+      SSH_PORT: ${SSH_PORT:-22}
+      SSH_JUMP_HOST: ${SSH_JUMP_HOST:-}
+      SSH_JUMP_USER: ${SSH_JUMP_USER:-}
+      SSH_JUMP_PORT: ${SSH_JUMP_PORT:-22}
+    volumes:
+      - type: bind
+        source: ${SSH_KEY_PATH:-./config/id_ed25519}
+        target: /run/keys/exit
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${SSH_JUMP_KEY_PATH:-${SSH_KEY_PATH:-./config/id_ed25519}}
+        target: /run/keys/jump
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${SSH_KNOWN_HOSTS_PATH:-./config/known_hosts}
+        target: /run/keys/known_hosts
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "--show-error", "--noproxy", "", "--proxy", "http://127.0.0.1:5187", "--max-time", "8", "https://example.com/"]
+      interval: 15s
+      timeout: 10s
+      retries: 4
+    restart: unless-stopped
+    init: true
+  pi:
+    <<: *agent
+    build:
+      context: .
+      target: pi
+    volumes:
+      - ./data:/data
+
+  codex:
+    <<: *agent
+    build:
+      context: .
+      target: codex
+    environment:
+      <<: *agent-env
+      HOME: /data/.codex
+      CODEX_HOME: /data/.codex
+    volumes:
+      - ./data/projects:/data/projects
+      - ./data/.codex:/data/.codex
+
+  antigravity:
+    <<: *agent
+    build:
+      context: .
+      target: antigravity
+    environment:
+      <<: *agent-env
+      HOME: /data/.antigravity
+      AGY_CLI_DISABLE_AUTO_UPDATE: "true"
+    volumes:
+      - ./data/projects:/data/projects
+      - ./data/.antigravity:/data/.antigravity
+
+networks:
+  isolated:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+  egress:
